@@ -69,8 +69,8 @@ def auth_gateway():
 
     with tab2:
         st.subheader("Master / Owner Login")
-        m_id = st.text_input("Master ID", value="Admin")
-        m_pwd = st.text_input("Master Password", type="password", value="Rj308218@gmail")
+        m_id = st.text_input("Master ID", value="xxxxx")
+        m_pwd = st.text_input("Master Password", type="password", value="xxxxx")
         
         if st.button("Authorize Master Access"):
             if m_id == "Admin" and m_pwd == "Rj308218@gmail":
