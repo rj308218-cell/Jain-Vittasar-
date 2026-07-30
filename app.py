@@ -37,6 +37,9 @@ if "sales_cart" not in st.session_state:
 # ==========================================
 # AUTHENTICATION & SIGNUP GATEWAY
 # ==========================================
+# ==========================================
+# AUTHENTICATION & SIGNUP GATEWAY
+# ==========================================
 def auth_gateway():
     st.title("🏢 JAIN VITTASAR - CLOUD GATEWAY")
     st.markdown("### Financial Intelligence & Billing Platform")
@@ -86,9 +89,15 @@ def auth_gateway():
         st.subheader("New Business Registration & Subscription")
         reg_biz = st.text_input("Business Name *", key="reg_biz")
         reg_owner = st.text_input("Owner Full Name *", key="reg_owner")
+        reg_email = st.text_input("Email Address *", key="reg_email")
         reg_mobile = st.text_input("Mobile Number *", key="reg_mobile")
         reg_addr = st.text_area("Office Address *", key="reg_addr")
-        reg_gstin = st.text_input("GSTIN (Optional)", key="reg_gstin")
+        
+        # Optional GSTIN Checkbox Flow
+        has_gstin = st.checkbox("Do you have a GSTIN?", key="reg_has_gstin")
+        reg_gstin = ""
+        if has_gstin:
+            reg_gstin = st.text_input("GSTIN Number", key="reg_gstin")
         
         st.markdown("---")
         plan_choice = st.selectbox("Select Subscription Plan", ["1 Day Plan (₹10)", "1 Month Plan (₹250)", "Custom Plan (90+ Days - 10% Off)"])
@@ -97,7 +106,7 @@ def auth_gateway():
         reg_pwd = st.text_input("Create Password *", type="password", key="reg_pwd")
 
         if st.button("Complete Registration", type="primary"):
-            if not reg_biz or not reg_owner or not reg_mobile or not reg_addr or not reg_user or not reg_pwd:
+            if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd:
                 st.error("Please fill out all required fields (*).")
             else:
                 try:
@@ -108,13 +117,13 @@ def auth_gateway():
                     else:
                         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
-                        # Insert User
+                        # Insert User (Storing email inside user payload or expanding if column exists)
                         user_payload = {
                             "company_name": reg_biz,
                             "owner_name": reg_owner,
                             "mobile": reg_mobile,
                             "address": reg_addr,
-                            "gstin": reg_gstin,
+                            "gstin": reg_gstin if has_gstin else "",
                             "plan_name": plan_choice,
                             "plan_days": 1 if "1 Day" in plan_choice else 30,
                             "amount_paid": 10 if "1 Day" in plan_choice else 250,
@@ -129,7 +138,7 @@ def auth_gateway():
                             "name": reg_biz,
                             "address": reg_addr,
                             "phone": reg_mobile,
-                            "gstin": reg_gstin,
+                            "gstin": reg_gstin if has_gstin else "Unregistered",
                             "financial_year": "2026-2027"
                         }
                         supabase.table("company_profile").upsert(comp_payload, on_conflict="name").execute()
@@ -141,7 +150,6 @@ def auth_gateway():
 if not st.session_state.authenticated:
     auth_gateway()
     st.stop()
-
 # ==========================================
 # DASHBOARD NAVIGATION CONSOLE
 # ==========================================
