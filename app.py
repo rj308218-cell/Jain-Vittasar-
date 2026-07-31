@@ -33,10 +33,8 @@ if "company" not in st.session_state:
     st.session_state.company = None
 if "sales_cart" not in st.session_state:
     st.session_state.sales_cart = []
-
-# ==========================================
-# AUTHENTICATION & SIGNUP GATEWAY
-# ==========================================
+if "is_master" not in st.session_state:
+    st.session_state.is_master = False
 # ==========================================
 # AUTHENTICATION & SIGNUP GATEWAY
 # ==========================================
@@ -46,6 +44,13 @@ def auth_gateway():
     
     tab1, tab2, tab3 = st.tabs(["Customer Login", "Master Login", "New Registration & Signup"])
     
+    # Fetch Master Configurations safely from Supabase
+    try:
+        cfg_res = supabase.table("master_config").select("*").execute()
+        config_data = {row["key"]: row["value"] for row in cfg_res.data} if cfg_res.data else {}
+    except Exception:
+        config_data = {}
+
     with tab1:
         st.subheader("Customer Login")
         u_name = st.text_input("Username / User ID", key="cust_user")
@@ -59,31 +64,41 @@ def auth_gateway():
                     res = supabase.table("users").select("*").eq("username", u_name).eq("password", u_pwd).execute()
                     if res.data:
                         account = res.data[0]
-                        st.session_state.authenticated = True
                         
-                        comp_res = supabase.table("company_profile").select("*").eq("name", account["company_name"]).execute()
-                        if comp_res.data:
-                            st.session_state.company = comp_res.data[0]
-                        st.success(f"Welcome back, {account['owner_name']}!")
-                        st.rerun()
+                        # Check subscription expiry deadline
+                        created_at = datetime.strptime(account["created_at"], "%Y-%m-%d %H:%M:%S")
+                        plan_days = int(account.get("plan_days", 30))
+                        expiry_date = created_at + pd.Timedelta(days=plan_days)
+                        
+                        if datetime.now() > expiry_date:
+                            st.error(f"Your subscription expired on {expiry_date.strftime('%Y-%m-%d')}. Please contact admin or renew your plan.")
+                        else:
+                            st.session_state.authenticated = True
+                            st.session_state.is_master = False
+                            comp_res = supabase.table("company_profile").select("*").eq("name", account["company_name"]).execute()
+                            if comp_res.data:
+                                st.session_state.company = comp_res.data[0]
+                            st.success(f"Welcome back, {account['owner_name']}!")
+                            st.rerun()
                     else:
                         st.error("Invalid Username or Password!")
                 except Exception as e:
                     st.error(f"Login failed: {e}")
 
     with tab2:
-        st.subheader("Master / Owner Login")
-        m_id = st.text_input("Master ID", value="Admin")
-        m_pwd = st.text_input("Master Password", type="password", value="Rj308218@gmail")
+        st.subheader("Master / Creator Login")
+        m_id = st.text_input("Master ID", value="Admin", key="m_id_box")
+        m_pwd = st.text_input("Master Password", type="password", value="Rj308218@gmail", key="m_pwd_box")
         
-        if st.button("Authorize Master Access"):
+        if st.button("Authorize Master Access", key="m_auth_btn"):
             if m_id == "Admin" and m_pwd == "Rj308218@gmail":
                 st.session_state.authenticated = True
-                st.session_state.company = {"name": "System Admin Enterprise", "gstin": "TEST-GSTIN-000"}
-                st.success("Master Admin Access Granted.")
+                st.session_state.is_master = True
+                st.session_state.company = {"name": "Software Creator Portal", "gstin": "MASTER-ROOT"}
+                st.success("Master Creator Access Granted.")
                 st.rerun()
             else:
-                st.error("Invalid Master Owner Credentials!")
+                st.error("Invalid Master Creator Credentials!")
 
     with tab3:
         st.subheader("New Business Registration & Subscription")
@@ -93,47 +108,73 @@ def auth_gateway():
         reg_mobile = st.text_input("Mobile Number *", key="reg_mobile")
         reg_addr = st.text_area("Office Address *", key="reg_addr")
         
-        # Optional GSTIN Checkbox Flow
         has_gstin = st.checkbox("Do you have a GSTIN?", key="reg_has_gstin")
-        reg_gstin = ""
-        if has_gstin:
-            reg_gstin = st.text_input("GSTIN Number", key="reg_gstin")
+        reg_gstin = st.text_input("GSTIN Number", key="reg_gstin") if has_gstin else ""
         
         st.markdown("---")
-        plan_choice = st.selectbox("Select Subscription Plan", ["1 Day Plan (₹10)", "1 Month Plan (₹250)", "Custom Plan (90+ Days - 10% Off)"])
+        st.markdown("### Select Subscription & Payment")
+        
+        # Load Plans dynamically from Master Settings
+        import json
+        default_plans = [
+            {"name": "1 Day Plan", "price": 10, "days": 1},
+            {"name": "1 Month Plan", "price": 250, "days": 30},
+            {"name": "Custom Plan (90 Days)", "price": 600, "days": 90}
+        ]
+        plans = json.loads(config_data.get("subscription_plans", json.dumps(default_plans)))
+        plan_options = {f"{p['name']} (₹{p['price']})": p for p in plans}
+        
+        sel_plan_label = st.selectbox("Select Subscription Plan", list(plan_options.keys()))
+        chosen_plan = plan_options[sel_plan_label]
+        
+        st.info(f"Amount to Pay: **₹{chosen_plan['price']}** for **{chosen_plan['days']} Days** validity.")
+        
+        # Display Creator's Payment Instructions / QR / UPI
+        st.markdown("#### 💳 Payment Instructions")
+        col_pay1, col_pay2 = st.columns(2)
+        with col_pay1:
+            st.write(f"**UPI ID:** {config_data.get('upi_id', 'Not Set')}")
+            st.write(f"**Bank Name:** {config_data.get('bank_name', 'Not Set')}")
+            st.write(f"**Account No:** {config_data.get('account_no', 'Not Set')}")
+            st.write(f"**IFSC Code:** {config_data.get('ifsc', 'Not Set')}")
+        with col_pay2:
+            qr_link = config_data.get('qr_code_url', '')
+            if qr_link:
+                st.image(qr_link, width=160, caption="Scan & Pay via UPI")
+            else:
+                st.warning("QR Code not uploaded by Master yet.")
+
+        txn_ref = st.text_input("Enter UPI Transaction ID / UTR Number after payment *", key="reg_txn_ref")
         
         reg_user = st.text_input("Create Username *", key="reg_user")
         reg_pwd = st.text_input("Create Password *", type="password", key="reg_pwd")
 
         if st.button("Complete Registration", type="primary"):
-            if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd:
-                st.error("Please fill out all required fields (*).")
+            if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd or not txn_ref:
+                st.error("Please fill out all required fields and enter your payment Transaction ID (UTR).")
             else:
                 try:
-                    # Check if username exists
                     check_user = supabase.table("users").select("id").eq("username", reg_user).execute()
                     if check_user.data:
                         st.error("Username already taken! Choose another.")
                     else:
                         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        # Insert User (Storing email inside user payload or expanding if column exists)
                         user_payload = {
                             "company_name": reg_biz,
                             "owner_name": reg_owner,
                             "mobile": reg_mobile,
                             "address": reg_addr,
-                            "gstin": reg_gstin if has_gstin else "",
-                            "plan_name": plan_choice,
-                            "plan_days": 1 if "1 Day" in plan_choice else 30,
-                            "amount_paid": 10 if "1 Day" in plan_choice else 250,
+                            "gstin": reg_gstin,
+                            "plan_name": chosen_plan["name"],
+                            "plan_days": chosen_plan["days"],
+                            "amount_paid": chosen_plan["price"],
+                            "txn_ref": txn_ref,
                             "username": reg_user,
                             "password": reg_pwd,
                             "created_at": now_str
                         }
                         supabase.table("users").insert(user_payload).execute()
 
-                        # Insert Company Profile
                         comp_payload = {
                             "name": reg_biz,
                             "address": reg_addr,
@@ -146,7 +187,6 @@ def auth_gateway():
                         st.success("Registration successful! You can now log in via the Customer Login tab.")
                 except Exception as e:
                     st.error(f"Registration failed: {e}")
-
 if not st.session_state.authenticated:
     auth_gateway()
     st.stop()
@@ -157,19 +197,21 @@ st.sidebar.title("Navigation Console")
 if st.session_state.company:
     st.sidebar.success(f"Active: {st.session_state.company.get('name')}")
 
-nav_choice = st.sidebar.radio("Go to", [
-    "🏠 Company Profile", 
-    "📈 Sales & Billing Module", 
-    "📦 Inventory Control",
-    "👥 Parties & Customers Ledger",
-    "📊 Invoices & Audit Logs"
-])
-
-if st.sidebar.button("🔒 Logout Session"):
-    st.session_state.authenticated = False
-    st.session_state.company = None
-    st.rerun()
-
+if st.session_state.get("is_master", False):
+    nav_choice = st.sidebar.radio("Master Portal", [
+        "👑 Master Control Panel",
+        "👥 Manage All Users & Subscriptions",
+        "💳 Payment Gateway Setup",
+        "⚙️ Plan Pricing & Customizer"
+    ])
+else:
+    nav_choice = st.sidebar.radio("Go to", [
+        "🏠 Company Profile", 
+        "📈 Sales & Billing Module", 
+        "📦 Inventory Control",
+        "👥 Parties & Customers Ledger",
+        "📊 Invoices & Audit Logs"
+    ])
 # --- MODULE 1: COMPANY PROFILE ---
 if nav_choice == "🏠 Company Profile":
     st.subheader("🏢 Enterprise Profile Management")
@@ -409,3 +451,121 @@ elif nav_choice == "📊 Invoices & Audit Logs":
             st.info("No invoices found.")
     except Exception as e:
         st.error(f"Failed to load invoices: {e}")
+# --- MASTER MODULE 1: MASTER CONTROL PANEL & ANALYTICS ---
+if st.session_state.get("is_master", False) and nav_choice == "👑 Master Control Panel":
+    st.subheader("👑 Software Creator & Master Dashboard")
+    try:
+        users_res = supabase.table("users").select("*").execute()
+        total_users = len(users_res.data) if users_res.data else 0
+        total_revenue = sum(float(u.get("amount_paid", 0)) for u in users_res.data) if users_res.data else 0
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Registered Businesses", total_users)
+        col2.metric("Total Platform Revenue (₹)", f"₹ {total_revenue:,.2f}")
+        col3.metric("System Status", "Live & Healthy")
+        
+        st.markdown("### Recent Signups")
+        if users_res.data:
+            st.dataframe(pd.DataFrame(users_res.data)[['company_name', 'owner_name', 'mobile', 'plan_name', 'amount_paid', 'created_at']])
+    except Exception as e:
+        st.error(f"Error loading master data: {e}")
+
+# --- MASTER MODULE 2: MANAGE USERS & SUBSCRIPTIONS ---
+elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All Users & Subscriptions":
+    st.subheader("👥 User Account & Subscription Manager")
+    try:
+        users_res = supabase.table("users").select("*").execute()
+        if users_res.data:
+            for u in users_res.data:
+                with st.expander(f"Business: {u['company_name']} ({u['username']})"):
+                    st.write(f"**Owner:** {u['owner_name']} | **Mobile:** {u['mobile']}")
+                    st.write(f"**Current Plan:** {u['plan_name']} | **Paid:** ₹{u.get('amount_paid', 0)} | **Registered:** {u['created_at']}")
+                    
+                    new_validity = st.number_input("Extend Plan Validity (Days)", min_value=1, value=30, key=f"ext_{u['id']}")
+                    if st.button("Update Expiry / Extend Plan", key=f"btn_ext_{u['id']}"):
+                        supabase.table("users").update({"plan_days": u.get("plan_days", 30) + new_validity}).eq("id", u["id"]).execute()
+                        st.success("Subscription extended successfully!")
+                        st.rerun()
+                        
+                    if st.button("🗑️ Delete / Block User", key=f"del_{u['id']}"):
+                        supabase.table("users").delete().eq("id", u["id"]).execute()
+                        st.warning("User account removed.")
+                        st.rerun()
+    except Exception as e:
+        st.error(f"Failed to fetch users: {e}")
+
+# --- MASTER MODULE 3: PAYMENT GATEWAY SETUP ---
+elif st.session_state.get("is_master", False) and nav_choice == "💳 Payment Gateway Setup":
+    st.subheader("💳 Configure Creator Payment Gateways")
+    
+    try:
+        cfg_res = supabase.table("master_config").select("*").execute()
+        cfg_map = {row["key"]: row["value"] for row in cfg_res.data} if cfg_res.data else {}
+    except Exception:
+        cfg_map = {}
+        
+    upi_input = st.text_input("Master UPI ID", value=cfg_map.get("upi_id", ""))
+    bank_input = st.text_input("Bank Name", value=cfg_map.get("bank_name", ""))
+    acc_input = st.text_input("Account Number", value=cfg_map.get("account_no", ""))
+    ifsc_input = st.text_input("IFSC Code", value=cfg_map.get("ifsc", ""))
+    qr_url_input = st.text_input("QR Code Image Direct URL", value=cfg_map.get("qr_code_url", ""))
+
+    if st.button("Save Payment Configurations", type="primary"):
+        configs = [
+            {"key": "upi_id", "value": upi_input},
+            {"key": "bank_name", "value": bank_input},
+            {"key": "account_no", "value": acc_input},
+            {"key": "ifsc", "value": ifsc_input},
+            {"key": "qr_code_url", "value": qr_url_input}
+        ]
+        for c in configs:
+            supabase.table("master_config").upsert(c, on_conflict="key").execute()
+        st.success("Payment details updated live for all new customer signups!")
+
+# --- MASTER MODULE 4: PLAN PRICING & CUSTOMIZER ---
+elif st.session_state.get("is_master", False) and nav_choice == "⚙️ Plan Pricing & Customizer":
+    st.subheader("⚙️ Subscription Plans Creator & Editor")
+    
+    import json
+    try:
+        cfg_res = supabase.table("master_config").select("value").eq("key", "subscription_plans").execute()
+        current_plans = json.loads(cfg_res.data[0]["value"]) if cfg_res.data else [
+            {"name": "1 Day Plan", "price": 10, "days": 1},
+            {"name": "1 Month Plan", "price": 250, "days": 30},
+            {"name": "Custom Plan (90 Days)", "price": 600, "days": 90}
+        ]
+    except Exception:
+        current_plans = []
+
+    st.write("### Active Subscription Plans")
+    updated_plans = []
+    for idx, p in enumerate(current_plans):
+        col_p1, col_p2, col_p3, col_p4 = st.columns([3, 2, 2, 1])
+        with col_p1:
+            p_name = st.text_input("Plan Name", value=p["name"], key=f"p_name_{idx}")
+        with col_p2:
+            p_price = st.number_input("Price (₹)", value=int(p["price"]), key=f"p_price_{idx}")
+        with col_p3:
+            p_days = st.number_input("Validity (Days)", value=int(p["days"]), key=f"p_days_{idx}")
+        with col_p4:
+            keep_plan = st.checkbox("Keep", value=True, key=f"p_keep_{idx}")
+        
+        if keep_plan:
+            updated_plans.append({"name": p_name, "price": p_price, "days": p_days})
+
+    st.markdown("---")
+    st.write("#### Add New Plan")
+    new_p_name = st.text_input("New Plan Name")
+    new_p_price = st.number_input("New Plan Price (₹)", min_value=0, value=500)
+    new_p_days = st.number_input("New Plan Validity (Days)", min_value=1, value=365)
+
+    if st.button("Add Plan"):
+        if new_p_name:
+            updated_plans.append({"name": new_p_name, "price": new_p_price, "days": new_p_days})
+            st.success("Plan added! Click 'Save All Plan Changes' below.")
+
+    if st.button("Save All Plan Changes", type="primary"):
+        payload = {"key": "subscription_plans", "value": json.dumps(updated_plans)}
+        supabase.table("master_config").upsert(payload, on_conflict="key").execute()
+        st.success("Subscription plans updated successfully across the app!")
+        st.rerun()
