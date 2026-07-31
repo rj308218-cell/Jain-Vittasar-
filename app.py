@@ -194,9 +194,6 @@ if not st.session_state.authenticated:
 # DASHBOARD NAVIGATION CONSOLE
 # ==========================================
 st.sidebar.title("Navigation Console")
-if st.session_state.company:
-    st.sidebar.success(f"Active: {st.session_state.company.get('name')}")
-
 if st.session_state.get("is_master", False):
     nav_choice = st.sidebar.radio("Master Portal", [
         "👑 Master Control Panel",
@@ -212,7 +209,13 @@ else:
         "👥 Parties & Customers Ledger",
         "📊 Invoices & Audit Logs"
     ])
-# --- MODULE 1: COMPANY PROFILE ---
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🔒 Logout Session"):
+    st.session_state.authenticated = False
+    st.session_state.company = None
+    st.session_state.is_master = False
+    st.rerun()# --- MODULE 1: COMPANY PROFILE ---
 if nav_choice == "🏠 Company Profile":
     st.subheader("🏢 Enterprise Profile Management")
     c_active = st.session_state.company or {}
