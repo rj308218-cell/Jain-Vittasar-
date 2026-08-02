@@ -110,7 +110,7 @@ def auth_gateway():
             else:
                 st.error("Invalid Master Creator Credentials!")
 
-    with tab3:
+with tab3:
         st.subheader("New Business Registration & Subscription")
         reg_biz = st.text_input("Business Name *", key="reg_biz")
         reg_owner = st.text_input("Owner Full Name *", key="reg_owner")
@@ -124,7 +124,6 @@ def auth_gateway():
         st.markdown("---")
         st.markdown("### Select Subscription & Payment")
         
-        # Load Plans dynamically from Master Settings
         import json
         default_plans = [
             {"name": "1 Day Plan", "price": 10, "days": 1},
@@ -139,12 +138,8 @@ def auth_gateway():
         
         st.info(f"Amount to Pay: **₹{chosen_plan['price']}** for **{chosen_plan['days']} Days** validity.")
         
-        # Display Creator's Payment Instructions / QR / UPI
-        # Display Creator's Payment Instructions & Dynamic Amount-Embedded UPI QR Code
         st.markdown("#### 💳 Payment Instructions (Scan & Pay)")
-        
         import qrcode
-        from io import BytesIO
         import time
 
         master_upi = config_data.get('upi_id', '')
@@ -160,22 +155,18 @@ def auth_gateway():
             
         with col_pay2:
             if master_upi:
-                # Initialize session timer for 15-minute QR validity if not already set
                 if "qr_gen_time" not in st.session_state or st.session_state.get("last_plan") != plan_amount:
                     st.session_state.qr_gen_time = time.time()
                     st.session_state.last_plan = plan_amount
                 
                 elapsed_time = time.time() - st.session_state.qr_gen_time
-                remaining_time = max(0, int(900 - elapsed_time)) # 900 seconds = 15 minutes
+                remaining_time = max(0, int(900 - elapsed_time))
                 
                 if remaining_time > 0:
                     mins, secs = divmod(remaining_time, 60)
                     st.info(f"⏳ QR Code valid for: **{mins:02d}:{secs:02d}**")
                     
-                    # Construct UPI String with amount and payee address
                     upi_string = f"upi://pay?pa={master_upi}&pn=JainVittasar&am={plan_amount}&cu=INR"
-                    
-                    # Generate QR Code image in memory
                     qr = qrcode.QRCode(box_size=4, border=2)
                     qr.add_data(upi_string)
                     qr.make(fit=True)
@@ -186,39 +177,36 @@ def auth_gateway():
                     buf.seek(0)
                     
                     st.image(buf, width=180, caption=f"Scan to Pay ₹{plan_amount}")
-                    
-                    if st.button("🔄 Refresh QR Code Timer"):
-                        st.session_state.qr_gen_time = time.time()
-                        st.rerun()
                 else:
-                    st.error("⚠️ QR Code expired! Please refresh to generate a new one.")
-                    if st.button("Generate New QR Code"):
-                        st.session_state.qr_gen_time = time.time()
-                        st.rerun()
+                    st.error("⚠️ QR Code expired! Please refresh.")
             else:
                 st.warning("Master UPI ID not configured yet.")
-        txn_ref = st.text_input("Enter UPI Transaction ID / UTR Number after payment *", key="reg_txn_ref")
+
+        st.markdown("---")
+        st.markdown("### 📤 Mandatory Payment Proof Upload")
+        screenshot_file = st.file_uploader("Upload Payment Screenshot (PNG/JPG) *", type=["jpg", "jpeg", "png"], key="reg_screenshot")
+        txn_ref = st.text_input("Enter UPI Transaction ID / UTR Number manually *", key="reg_txn_ref")
         
         reg_user = st.text_input("Create Username *", key="reg_user")
         reg_pwd = st.text_input("Create Password *", type="password", key="reg_pwd")
 
         if st.button("Complete Registration", type="primary"):
-            if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd or not txn_ref:
-                st.error("Please fill out all required fields and enter your payment Transaction ID (UTR).")
+            if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd or not txn_ref or not screenshot_file:
+                st.error("All fields, payment UTR number, and the payment screenshot are mandatory!")
             else:
                 try:
-                    # Check for existing username or email or gstin to prevent duplicates[cite: 3]
+                    # Check if UTR number already exists to reject duplicate entries
+                    check_utr = supabase.table("users").select("id").eq("txn_ref", txn_ref).execute()
                     check_user = supabase.table("users").select("id").eq("username", reg_user).execute()
-                    check_email = supabase.table("users").select("id").eq("mobile", reg_mobile).execute() # checking unique channel
                     
-                    # Check company profile for existing gstin or name if applicable
-                    check_gstin = supabase.table("company_profile").select("name").eq("gstin", reg_gstin).execute() if reg_gstin else type('obj', (object,), {'data': []})
-
-                    if check_user.data:
+                    if check_utr.data:
+                        st.error("⚠️ This UTR number has already been used or entered previously. Duplicate UTR submissions are rejected.")
+                    elif check_user.data:
                         st.error("Username already taken! Choose another.")
-                    elif check_email.data or (reg_gstin and check_gstin.data):
-                        st.error("This e-mail is already registered please try to sign in.")[cite: 3]
                     else:
+                        # Convert uploaded image screenshot to bytes string for database / state reference
+                        screenshot_bytes = screenshot_file.getvalue()
+                        
                         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         user_payload = {
                             "company_name": reg_biz,
@@ -230,6 +218,8 @@ def auth_gateway():
                             "plan_days": chosen_plan["days"],
                             "amount_paid": chosen_plan["price"],
                             "txn_ref": txn_ref,
+                            "payment_status": "Pending Verification", # Locked until Master approves
+                            "screenshot_name": screenshot_file.name,
                             "username": reg_user,
                             "password": reg_pwd,
                             "created_at": now_str
@@ -245,10 +235,10 @@ def auth_gateway():
                         }
                         supabase.table("company_profile").upsert(comp_payload, on_conflict="name").execute()
 
-                        st.success("Registration successful! You can now log in via the Customer Login tab.")
+                        st.success("Registration successful! Notification sent to Master Admin for payment verification. You can log in once approved.")
                 except Exception as e:
                     st.error(f"Registration failed: {e}")
-if not st.session_state.authenticated:
+                    if not st.session_state.authenticated:
     auth_gateway()
     st.stop()
 # ==========================================
@@ -595,25 +585,59 @@ if st.session_state.get("is_master", False) and nav_choice == "👑 Master Contr
 
 # --- MASTER MODULE 2: MANAGE USERS & SUBSCRIPTIONS ---
 elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All Users & Subscriptions":
-    st.subheader("👥 User Account & Subscription Manager")
+    st.subheader("👥 Payment Approvals & User Access Manager")
+    
     try:
         users_res = supabase.table("users").select("*").execute()
         if users_res.data:
-            for u in users_res.data:
-                with st.expander(f"Business: {u['company_name']} ({u['username']})"):
-                    st.write(f"**Owner:** {u['owner_name']} | **Mobile:** {u['mobile']}")
-                    st.write(f"**Current Plan:** {u['plan_name']} | **Paid:** ₹{u.get('amount_paid', 0)} | **Registered:** {u['created_at']}")
-                    
-                    new_validity = st.number_input("Extend Plan Validity (Days)", min_value=1, value=30, key=f"ext_{u['id']}")
-                    if st.button("Update Expiry / Extend Plan", key=f"btn_ext_{u['id']}"):
-                        supabase.table("users").update({"plan_days": u.get("plan_days", 30) + new_validity}).eq("id", u["id"]).execute()
-                        st.success("Subscription extended successfully!")
-                        st.rerun()
+            # Filter users pending verification
+            pending_list = [u for u in users_res.data if u.get("payment_status") == "Pending Verification"]
+            
+            if pending_list:
+                st.warning(f"🔔 You have {len(pending_list)} pending payment notification(s) waiting for confirmation!")
+                
+                for u in pending_list:
+                    with st.expander(f"⚠️ Action Required: {u['company_name']} ({u['owner_name']}) - UTR: {u['txn_ref']}"):
+                        col_m1, col_m2 = st.columns(2)
+                        with col_m1:
+                            st.write(f"**Mobile:** {u['mobile']}")
+                            st.write(f"**Plan:** {u['plan_name']} (₹{u.get('amount_paid', 0)})")
+                            st.write(f"**Customer Entered UTR:** `{u['txn_ref']}`")
+                            st.write(f"**Registered At:** {u['created_at']}")
+                            st.write(f"**Uploaded File Name:** {u.get('screenshot_name', 'No screenshot name')}")
+                            
+                        with col_m2:
+                            st.info("📷 **Verification Process:** Check your bank account/UPI merchant app for UTR match.")
                         
-                    if st.button("🗑️ Delete / Block User", key=f"del_{u['id']}"):
-                        supabase.table("users").delete().eq("id", u["id"]).execute()
-                        st.warning("User account removed.")
-                        st.rerun()
+                        st.markdown("---")
+                        st.markdown("### 🔐 Master Double-Confirmation Check")
+                        master_utr_input = st.text_input("Re-type UTR to Confirm Match", key=f"master_utr_{u['id']}")
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            if st.button("✅ Confirm Payment & Grant Access", key=f"approve_{u['id']}_btn"):
+                                if master_utr_input.strip() == "":
+                                    st.error("Please re-type the UTR number to cross-verify.")
+                                elif master_utr_input.strip() == u['txn_ref'].strip():
+                                    # Double check against global database entries to prevent reuse
+                                    supabase.table("users").update({
+                                        "payment_status": "Approved"
+                                    }).eq("id", u["id"]).execute()
+                                    st.success(f"Payment confirmed for {u['company_name']}! Access granted.")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Mismatch! The UTR entered does not match the customer's submitted UTR.")
+                        with col_btn2:
+                            if st.button("❌ Reject Payment", key=f"reject_{u['id']}_btn"):
+                                supabase.table("users").update({"payment_status": "Rejected"}).eq("id", u["id"]).execute()
+                                st.warning("Payment rejected.")
+                                st.rerun()
+            else:
+                st.info("No pending payment notifications right now.")
+
+            st.markdown("---")
+            st.markdown("### All Registered Users")
+            st.dataframe(pd.DataFrame(users_res.data)[['company_name', 'owner_name', 'mobile', 'plan_name', 'payment_status', 'txn_ref', 'created_at']])
     except Exception as e:
         st.error(f"Failed to fetch users: {e}")
 elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All Users & Subscriptions":
