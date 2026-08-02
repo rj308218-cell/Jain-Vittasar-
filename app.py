@@ -651,7 +651,13 @@ elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All
                                 st.warning("Payment rejected.")
                                 st.rerun()
             else:
-                st.info("No pending payment notifications right now.")                    with col_m1:
+                st.info("No pending payment notifications right now.")
+
+            st.markdown("---")
+            st.markdown("### All Registered Users")
+            st.dataframe(pd.DataFrame(users_res.data)[['company_name', 'owner_name', 'mobile', 'plan_name', 'payment_status', 'txn_ref', 'created_at']])
+    except Exception as e:
+        st.error(f"Failed to fetch users: {e}")
                         st.write(f"**Mobile:** {u['mobile']}")
                         st.write(f"**Plan:** {u['plan_name']} (₹{u.get('amount_paid', 0)})")
                         st.write(f"**Customer Entered UTR:** `{u['txn_ref']}`")
