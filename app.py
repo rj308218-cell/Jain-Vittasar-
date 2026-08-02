@@ -234,9 +234,9 @@ def auth_gateway():
                 except Exception as e:
                     st.error(f"Registration failed: {e}")
 if not st.session_state.authenticated:
-auth_gateway()
-st.stop()
-# ==========================================
+    auth_gateway()
+    st.stop()
+    # ==========================================
 # DASHBOARD NAVIGATION CONSOLE
 # ==========================================
 # ==========================================
