@@ -58,40 +58,37 @@ def auth_gateway():
         
         if st.button("Login to Account", type="primary"):
             if not u_name or not u_pwd:
-                st.error("Please enter both Username and Password.")
-            else:
-                try:
-                    res = supabase.table("users").select("*").eq("username", u_name).eq("password", u_pwd).execute()
-if res.data:
-    account = res.data[0]
-    
-    # Check verification status
-    if account.get("payment_status") == "Pending Verification":
-        st.warning("⏳ Your payment is currently under review by the Master Admin. Access will be granted once bank verification is complete.")
-    elif account.get("payment_status") == "Rejected":
-        st.error("❌ Your payment was rejected by the administrator. Please contact support.")
-    else:
-        # Proceed with normal login and subscription expiry checks
-        ...
-                        st.session_state.is_master = False
-                        
-                        # Set subscription status flag instead of completely blocking access[cite: 3]
-                        if datetime.now() > expiry_date:
-                            st.session_state.subscription_expired = True
-                            st.warning(f"Your subscription expired on {expiry_date.strftime('%Y-%m-%d')}. Access is restricted to Data Backup and Plan Renewal.")[cite: 3]
-                        else:
-                            st.session_state.subscription_expired = False
-                            
-                        comp_res = supabase.table("company_profile").select("*").eq("name", account["company_name"]).execute()
-                        if comp_res.data:
-                            st.session_state.company = comp_res.data[0]
-                        st.success(f"Welcome back, {account['owner_name']}!")
-                        st.rerun()
+            st.error("Please enter both Username and Password.")
+        else:
+            try:
+                res = supabase.table("users").select("*").eq("username", u_name).eq("password", u_pwd).execute()
+                if res.data:
+                    account = res.data[0]
+                    
+                    # Check subscription expiry deadline
+                    created_at = datetime.strptime(account["created_at"], "%Y-%m-%d %H:%M:%S")
+                    plan_days = int(account.get("plan_days", 30))
+                    expiry_date = created_at + pd.Timedelta(days=plan_days)
+                    
+                    st.session_state.authenticated = True
+                    st.session_state.is_master = False
+                    
+                    # Check subscription status flag
+                    if datetime.now() > expiry_date:
+                        st.session_state.subscription_expired = True
+                        st.warning(f"Your subscription expired on {expiry_date.strftime('%Y-%m-%d')}. Access is restricted to Data Backup and Plan Renewal.")
                     else:
-                        st.error("Invalid Username or Password!")
-                except Exception as e:
-                    st.error(f"Login failed: {e}")
-
+                        st.session_state.subscription_expired = False
+                        
+                    comp_res = supabase.table("company_profile").select("*").eq("name", account["company_name"]).execute()
+                    if comp_res.data:
+                        st.session_state.company = comp_res.data[0]
+                    st.success(f"Welcome back, {account['owner_name']}!")
+                    st.rerun()
+                else:
+                    st.error("Invalid Username or Password!")
+            except Exception as e:
+                st.error(f"Login failed: {e}")
     with tab2:
         st.subheader("Master / Creator Login")
         m_id = st.text_input("Master ID", value="Admin", key="m_id_box")
