@@ -184,12 +184,63 @@ def auth_gateway():
         st.markdown("---")
         st.markdown("### 📤 Mandatory Payment Proof Upload")
         screenshot_file = st.file_uploader("Upload Payment Screenshot (PNG/JPG) *", type=["jpg", "jpeg", "png"], key="reg_screenshot")
+        
+        # Display image preview for the customer instantly upon upload
+        if screenshot_file is not None:
+            st.image(screenshot_file, caption="Payment Screenshot Preview", width=250)
+
         txn_ref = st.text_input("Enter UPI Transaction ID / UTR Number manually *", key="reg_txn_ref")
         
         reg_user = st.text_input("Create Username *", key="reg_user")
         reg_pwd = st.text_input("Create Password *", type="password", key="reg_pwd")
 
         if st.button("Complete Registration", type="primary"):
+            if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd or not txn_ref or not screenshot_file:
+                st.error("All fields, payment UTR number, and the payment screenshot are mandatory!")
+            else:
+                try:
+                    check_utr = supabase.table("users").select("id").eq("txn_ref", txn_ref).execute()
+                    check_user = supabase.table("users").select("id").eq("username", reg_user).execute()
+                    
+                    if check_utr.data:
+                        st.error("⚠️ This UTR number has already been used or entered previously. Duplicate UTR submissions are rejected.")
+                    elif check_user.data:
+                        st.error("Username already taken! Choose another.")
+                    else:
+                        # Upload image bytes to Supabase Storage Bucket named 'payment-proofs'
+                        file_ext = screenshot_file.name.split(".")[-1]
+                        file_path = f"{reg_user}_{int(time.time())}.{file_ext}"
+                        file_bytes = screenshot_file.getvalue()
+                        
+                        supabase.storage.from_("payment-proofs").upload(
+                            path=file_path,
+                            file=file_bytes,
+                            file_options={"content-type": f"image/{file_ext}"}
+                        )
+                        
+                        # Get public URL of the uploaded image
+                        public_url_res = supabase.storage.from_("payment-proofs").get_public_url(file_path)
+                        screenshot_url = public_url_res if isinstance(public_url_res, str) else public_url_res.get("publicUrl", "")
+
+                        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        user_payload = {
+                            "company_name": reg_biz,
+                            "owner_name": reg_owner,
+                            "mobile": reg_mobile,
+                            "address": reg_addr,
+                            "gstin": reg_gstin,
+                            "plan_name": chosen_plan["name"],
+                            "plan_days": chosen_plan["days"],
+                            "amount_paid": chosen_plan["price"],
+                            "txn_ref": txn_ref,
+                            "payment_status": "Pending Verification",
+                            "screenshot_name": screenshot_file.name,
+                            "screenshot_url": screenshot_url,  # Save the viewable URL
+                            "username": reg_user,
+                            "password": reg_pwd,
+                            "created_at": now_str
+                        }
+                        supabase.table("users").insert(user_payload).execute()
             if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd or not txn_ref or not screenshot_file:
                 st.error("All fields, payment UTR number, and the payment screenshot are mandatory!")
             else:
@@ -592,18 +643,22 @@ elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All
                 st.warning(f"🔔 You have {len(pending_list)} pending payment notification(s) waiting for confirmation!")
                 
                 for u in pending_list:
-                    with st.expander(f"⚠️ Action Required: {u['company_name']} ({u['owner_name']}) - UTR: {u['txn_ref']}"):
-                        col_m1, col_m2 = st.columns(2)
-                        with col_m1:
-                            st.write(f"**Mobile:** {u['mobile']}")
-                            st.write(f"**Plan:** {u['plan_name']} (₹{u.get('amount_paid', 0)})")
-                            st.write(f"**Customer Entered UTR:** `{u['txn_ref']}`")
-                            st.write(f"**Registered At:** {u['created_at']}")
-                            st.write(f"**Uploaded File Name:** {u.get('screenshot_name', 'No screenshot name')}")
-                            
-                        with col_m2:
-                            st.info("📷 **Verification Process:** Check your bank account/UPI merchant app for UTR match.")
+                with st.expander(f"⚠️ Action Required: {u['company_name']} ({u['owner_name']}) - UTR: {u['txn_ref']}"):
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        st.write(f"**Mobile:** {u['mobile']}")
+                        st.write(f"**Plan:** {u['plan_name']} (₹{u.get('amount_paid', 0)})")
+                        st.write(f"**Customer Entered UTR:** `{u['txn_ref']}`")
+                        st.write(f"**Registered At:** {u['created_at']}")
+                        st.write(f"**Uploaded File Name:** {u.get('screenshot_name', 'No screenshot name')}")
                         
+                    with col_m2:
+                        st.markdown("📷 **Customer Payment Screenshot Preview:**")
+                        img_url = u.get("screenshot_url", "")
+                        if img_url:
+                            st.image(img_url, caption=f"Proof by {u['company_name']}", width=300)
+                        else:
+                            st.warning("No image URL found for this record.")                        
                         st.markdown("---")
                         st.markdown("### 🔐 Master Double-Confirmation Check")
                         master_utr_input = st.text_input("Re-type UTR to Confirm Match", key=f"master_utr_{u['id']}")
