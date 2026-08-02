@@ -611,9 +611,47 @@ elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All
                 st.warning(f"🔔 You have {len(pending_list)} pending payment notification(s) waiting for confirmation!")
                 
                 for u in pending_list:
-                with st.expander(f"⚠️ Action Required: {u['company_name']} ({u['owner_name']}) - UTR: {u['txn_ref']}"):
-                    col_m1, col_m2 = st.columns(2)
-                    with col_m1:
+                    with st.expander(f"⚠️ Action Required: {u['company_name']} ({u['owner_name']}) - UTR: {u['txn_ref']}"):
+                        col_m1, col_m2 = st.columns(2)
+                        with col_m1:
+                            st.write(f"**Mobile:** {u['mobile']}")
+                            st.write(f"**Plan:** {u['plan_name']} (₹{u.get('amount_paid', 0)})")
+                            st.write(f"**Customer Entered UTR:** `{u['txn_ref']}`")
+                            st.write(f"**Registered At:** {u['created_at']}")
+                            st.write(f"**Uploaded File Name:** {u.get('screenshot_name', 'No screenshot name')}")
+                            
+                        with col_m2:
+                            st.markdown("📷 **Customer Payment Screenshot Preview:**")
+                            img_url = u.get("screenshot_url", "")
+                            if img_url:
+                                st.image(img_url, caption=f"Proof by {u['company_name']}", width=300)
+                            else:
+                                st.warning("No image URL found for this record.")
+                        
+                        st.markdown("---")
+                        st.markdown("### 🔐 Master Double-Confirmation Check")
+                        master_utr_input = st.text_input("Re-type UTR to Confirm Match", key=f"master_utr_{u['id']}")
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            if st.button("✅ Confirm Payment & Grant Access", key=f"approve_{u['id']}_btn"):
+                                if master_utr_input.strip() == "":
+                                    st.error("Please re-type the UTR number to cross-verify.")
+                                elif master_utr_input.strip() == u['txn_ref'].strip():
+                                    supabase.table("users").update({
+                                        "payment_status": "Approved"
+                                    }).eq("id", u["id"]).execute()
+                                    st.success(f"Payment confirmed for {u['company_name']}! Access granted.")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Mismatch! The UTR entered does not match the customer's submitted UTR.")
+                        with col_btn2:
+                            if st.button("❌ Reject Payment", key=f"reject_{u['id']}_btn"):
+                                supabase.table("users").update({"payment_status": "Rejected"}).eq("id", u["id"]).execute()
+                                st.warning("Payment rejected.")
+                                st.rerun()
+            else:
+                st.info("No pending payment notifications right now.")                    with col_m1:
                         st.write(f"**Mobile:** {u['mobile']}")
                         st.write(f"**Plan:** {u['plan_name']} (₹{u.get('amount_paid', 0)})")
                         st.write(f"**Customer Entered UTR:** `{u['txn_ref']}`")
