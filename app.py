@@ -671,6 +671,54 @@ elif st.session_state.get("is_master", False) and nav_choice == "⚙️ Plan Pri
         
         if keep_plan:
             updated_plans.append({"name": p_name, "price": p_price, "days": p_days})
+st.markdown("---")
+st.markdown("### 💳 Payment Verification & Upload")
+
+# Mandatory screenshot uploader
+screenshot_file = st.file_uploader(
+    "Upload Payment Screenshot (Mandatory - PNG/JPG) *", 
+    type=["jpg", "jpeg", "png"], 
+    key="reg_screenshot"
+)
+
+txn_ref = st.text_input("Enter UPI Transaction ID / UTR Number manually *", key="reg_txn_ref")
+
+# Inside the "Complete Registration" button logic:
+if st.button("Complete Registration", type="primary"):
+    if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd or not txn_ref or not screenshot_file:
+        st.error("All fields, payment UTR number, and the payment screenshot are mandatory!")
+    else:
+        try:
+            # 1. Check if UTR number already exists in the database to reject duplicates
+            check_utr = supabase.table("users").select("id").eq("txn_ref", txn_ref).execute()
+            if check_utr.data:
+                st.error("⚠️ This UTR number has already been used or entered previously. Duplicate UTR submissions are automatically rejected.")
+            else:
+                # 2. Save the screenshot file (can be saved to Supabase Storage or local path)
+                screenshot_path = f"payment_proofs/{reg_user}_{screenshot_file.name}"
+                # Note: You can upload bytes to Supabase storage bucket here if configured, or save filename references.
+                
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                user_payload = {
+                    "company_name": reg_biz,
+                    "owner_name": reg_owner,
+                    "mobile": reg_mobile,
+                    "address": reg_addr,
+                    "gstin": reg_gstin,
+                    "plan_name": chosen_plan["name"],
+                    "plan_days": chosen_plan["days"],
+                    "amount_paid": chosen_plan["price"],
+                    "txn_ref": txn_ref,
+                    "payment_status": "Pending Verification", # Awaiting master double-check
+                    "screenshot_url": screenshot_path,
+                    "username": reg_user,
+                    "password": reg_pwd,
+                    "created_at": now_str
+                }
+                supabase.table("users").insert(user_payload).execute()
+                st.success("Registration submitted! Awaiting Master Admin payment confirmation via bank cross-check.")
+        except Exception as e:
+            st.error(f"Registration failed: {e}")
 
     st.markdown("---")
     st.write("#### Add New Plan")
