@@ -66,20 +66,26 @@ def auth_gateway():
                         account = res.data[0]
                         
                         # Check subscription expiry deadline
+                        # Check subscription expiry deadline
                         created_at = datetime.strptime(account["created_at"], "%Y-%m-%d %H:%M:%S")
                         plan_days = int(account.get("plan_days", 30))
                         expiry_date = created_at + pd.Timedelta(days=plan_days)
                         
+                        st.session_state.authenticated = True
+                        st.session_state.is_master = False
+                        
+                        # Set subscription status flag instead of completely blocking access[cite: 3]
                         if datetime.now() > expiry_date:
-                            st.error(f"Your subscription expired on {expiry_date.strftime('%Y-%m-%d')}. Please contact admin or renew your plan.")
+                            st.session_state.subscription_expired = True
+                            st.warning(f"Your subscription expired on {expiry_date.strftime('%Y-%m-%d')}. Access is restricted to Data Backup and Plan Renewal.")[cite: 3]
                         else:
-                            st.session_state.authenticated = True
-                            st.session_state.is_master = False
-                            comp_res = supabase.table("company_profile").select("*").eq("name", account["company_name"]).execute()
-                            if comp_res.data:
-                                st.session_state.company = comp_res.data[0]
-                            st.success(f"Welcome back, {account['owner_name']}!")
-                            st.rerun()
+                            st.session_state.subscription_expired = False
+                            
+                        comp_res = supabase.table("company_profile").select("*").eq("name", account["company_name"]).execute()
+                        if comp_res.data:
+                            st.session_state.company = comp_res.data[0]
+                        st.success(f"Welcome back, {account['owner_name']}!")
+                        st.rerun()
                     else:
                         st.error("Invalid Username or Password!")
                 except Exception as e:
@@ -154,9 +160,17 @@ def auth_gateway():
                 st.error("Please fill out all required fields and enter your payment Transaction ID (UTR).")
             else:
                 try:
+                    # Check for existing username or email or gstin to prevent duplicates[cite: 3]
                     check_user = supabase.table("users").select("id").eq("username", reg_user).execute()
+                    check_email = supabase.table("users").select("id").eq("mobile", reg_mobile).execute() # checking unique channel
+                    
+                    # Check company profile for existing gstin or name if applicable
+                    check_gstin = supabase.table("company_profile").select("name").eq("gstin", reg_gstin).execute() if reg_gstin else type('obj', (object,), {'data': []})
+
                     if check_user.data:
                         st.error("Username already taken! Choose another.")
+                    elif check_email.data or (reg_gstin and check_gstin.data):
+                        st.error("This e-mail is already registered please try to sign in.")[cite: 3]
                     else:
                         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         user_payload = {
@@ -193,6 +207,9 @@ if not st.session_state.authenticated:
 # ==========================================
 # DASHBOARD NAVIGATION CONSOLE
 # ==========================================
+# ==========================================
+# DASHBOARD NAVIGATION CONSOLE
+# ==========================================
 st.sidebar.title("Navigation Console")
 if st.session_state.get("is_master", False):
     nav_choice = st.sidebar.radio("Master Portal", [
@@ -202,20 +219,39 @@ if st.session_state.get("is_master", False):
         "⚙️ Plan Pricing & Customizer"
     ])
 else:
-    nav_choice = st.sidebar.radio("Go to", [
-        "🏠 Company Profile", 
-        "📈 Sales & Billing Module", 
-        "📦 Inventory Control",
-        "👥 Parties & Customers Ledger",
-        "📊 Invoices & Audit Logs"
+    # Restructured into the 5 exact tabs with sub-options as requested in Doc1[cite: 3]
+    main_tab = st.sidebar.radio("Go to", [
+        "🏠 Home Tab", 
+        "📄 Invoices", 
+        "📊 Reports",
+        "💰 Cash & Accounts",
+        "📦 Inventory & Parties"
     ])
+    
+    # Sub-menu choices mapping based on selection
+    if main_tab == "🏠 Home Tab":
+        sub_choice = st.sidebar.selectbox("Home Options", ["Create New Company", "Update Company Data", "Back Up Your Data", "Subscription Plans"])
+        nav_choice = f"Home: {sub_choice}"
+    elif main_tab == "📄 Invoices":
+        sub_choice = st.sidebar.selectbox("Invoice Options", ["Sales Invoice", "Credit Note", "Purchase Receipt", "Debit Note", "Daily Ledger"])
+        nav_choice = f"Invoice: {sub_choice}"
+    elif main_tab == "📊 Reports":
+        sub_choice = st.sidebar.selectbox("Report Options", ["View Party Ledger", "View Inventory Ledger", "View All Bills Ledger"])
+        nav_choice = f"Report: {sub_choice}"
+    elif main_tab == "💰 Cash & Accounts":
+        sub_choice = st.sidebar.selectbox("Accounts Options", ["Cash", "Bank Account", "Add New Bank Account"])
+        nav_choice = f"Account: {sub_choice}"
+    else:
+        sub_choice = st.sidebar.selectbox("Manage", ["Inventory Control", "Parties & Customers Ledger"])
+        nav_choice = f"Manage: {sub_choice}"
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔒 Logout Session"):
     st.session_state.authenticated = False
     st.session_state.company = None
     st.session_state.is_master = False
-    st.rerun()# --- MODULE 1: COMPANY PROFILE ---
+    st.rerun()
+    # --- MODULE 1: COMPANY PROFILE ---
 if nav_choice == "🏠 Company Profile":
     st.subheader("🏢 Enterprise Profile Management")
     c_active = st.session_state.company or {}
@@ -229,6 +265,15 @@ if nav_choice == "🏠 Company Profile":
     c_acc = st.text_input("Account Number", value=c_active.get("account_no", ""))
     c_ifsc = st.text_input("IFSC Code", value=c_active.get("ifsc", ""))
 
+    # Added Business Logo Upload Option (JPEG/JPG/PNG)[cite: 3]
+    st.markdown("### Business Logo")
+    logo_file = st.file_uploader("Upload Company Logo (JPEG/JPG/PNG)", type=["jpg", "jpeg", "png"])
+    
+    logo_url = c_active.get("logo_url", "")
+    if logo_file is not None:
+        # For local file storage or handling bytes in session
+        logo_url = logo_file.name
+
     if st.button("Save Profile to Cloud", type="primary"):
         if not c_name or not c_gstin:
             st.error("Company Name and GSTIN are required.")
@@ -236,7 +281,7 @@ if nav_choice == "🏠 Company Profile":
             payload = {
                 "name": c_name, "address": c_addr, "phone": c_phone, 
                 "gstin": c_gstin, "pan": c_pan, "bank_name": c_bank, 
-                "account_no": c_acc, "ifsc": c_ifsc
+                "account_no": c_acc, "ifsc": c_ifsc, "logo_url": logo_url
             }
             try:
                 supabase.table("company_profile").upsert(payload, on_conflict="name").execute()
@@ -244,7 +289,6 @@ if nav_choice == "🏠 Company Profile":
                 st.success("Profile saved successfully!")
             except Exception as e:
                 st.error(f"Failed to save profile: {e}")
-
 # --- MODULE 2: SALES & BILLING ---
 elif nav_choice == "📈 Sales & Billing Module":
     st.subheader("📈 Sales & Invoicing Engine")
@@ -309,37 +353,66 @@ elif nav_choice == "📈 Sales & Billing Module":
             styles = getSampleStyleSheet()
             
             comp = st.session_state.company or {}
-            story.append(Paragraph(f"<b>{comp.get('name', 'Jain Vittasar Enterprise')}</b>", styles['Heading1']))
-            story.append(Paragraph(f"Address: {comp.get('address', 'N/A')} | GSTIN: {comp.get('gstin', 'N/A')}", styles['Normal']))
-            story.append(Spacer(1, 15))
             
-            story.append(Paragraph(f"<b>Tax Invoice #{bill_no}</b>", styles['Heading2']))
-            story.append(Paragraph(f"<b>Customer:</b> {customer} | <b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
+            # Header matching official billing format style[cite: 2]
+            story.append(Paragraph(f"<b>TAX INVOICE</b>", styles['Heading2']))
+            story.append(Paragraph(f"<b>{comp.get('name', 'Jain Vittasar Enterprise')}</b>", styles['Heading1']))
+            story.append(Paragraph(f"Address: {comp.get('address', 'N/A')} | GSTIN/UIN: {comp.get('gstin', 'N/A')}", styles['Normal']))
             story.append(Spacer(1, 10))
             
-            table_data = [["Item Name", "HSN", "Qty", "Price", "Tax %", "Total"]]
-            for item in items:
+            story.append(Paragraph(f"<b>Invoice No:</b> BE/26-27/{bill_no} | <b>Dated:</b> {datetime.now().strftime('%d-%b-%y')}", styles['Normal']))
+            story.append(Paragraph(f"<b>Buyer (Bill to):</b> {customer}", styles['Normal']))
+            story.append(Spacer(1, 10))
+            
+            # Detailed item columns matching Sales format[cite: 2]
+            table_data = [["SI No", "Description of Goods", "HSN/SAC", "Quantity", "Rate", "Amount"]]
+            for idx, item in enumerate(items, 1):
+                base_amt = item["qty"] * item["price"]
                 table_data.append([
-                    item["item_name"], item.get("hsn_code", ""), str(item["qty"]), 
-                    f"₹{item['price']:.2f}", f"{item['tax_rate']}%", f"₹{item['total_amount']:.2f}"
+                    str(idx), 
+                    item["item_name"], 
+                    item.get("hsn_code", "85446090"), 
+                    f"{item['qty']} MTR", 
+                    f"₹{item['price']:.2f}", 
+                    f"₹{base_amt:.2f}"
                 ])
             
-            t = Table(table_data, colWidths=[150, 70, 50, 80, 60, 100])
+            t = Table(table_data, colWidths=[40, 180, 70, 70, 75, 75])
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#003366')),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                ('PADDING', (0,0), (-1,-1), 6)
+                ('PADDING', (0,0), (-1,-1), 5),
+                ('FONTSIZE', (0,0), (-1,-1), 9)
             ]))
             story.append(t)
-            story.append(Spacer(1, 15))
-            story.append(Paragraph(f"<b>Total Tax:</b> ₹{t_tax:,.2f}", styles['Normal']))
+            story.append(Spacer(1, 10))
+            
+            # Tax breakdown split (CGST & SGST)[cite: 2]
+            half_tax = t_tax / 2.0
+            story.append(Paragraph(f"<b>OUTPUT CGST:</b> ₹{half_tax:,.2f}", styles['Normal']))
+            story.append(Paragraph(f"<b>OUTPUT SGST:</b> ₹{half_tax:,.2f}", styles['Normal']))
+            story.append(Spacer(1, 5))
             story.append(Paragraph(f"<b>Grand Total:</b> ₹{g_total:,.2f}", styles['Heading3']))
+            
+            # Amount in words & Declarations[cite: 2]
+            try:
+                words_str = num2words(int(g_total), lang='en_IN').title()
+            except Exception:
+                words_str = str(g_total)
+            
+            story.append(Spacer(1, 10))
+            story.append(Paragraph(f"<b>Amount Chargeable (in words):</b> INR {words_str} Only", styles['Normal']))
+            story.append(Spacer(1, 15))
+            story.append(Paragraph("<b>Declaration:</b> We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.", styles['Normal']))
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("<b>SUBJECT TO MEERUT JURISDICTION | E. & O.E</b>", styles['Normal']))
+            story.append(Paragraph("This is a Computer Generated Invoice", styles['Normal']))
             
             doc.build(story)
             buffer.seek(0)
             return buffer
-
+            
         if st.button("Commit & Generate Invoice PDF", type="primary"):
             try:
                 cur_date = datetime.now().strftime("%Y-%m-%d %H:%M")
