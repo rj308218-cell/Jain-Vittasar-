@@ -136,20 +136,63 @@ def auth_gateway():
         st.info(f"Amount to Pay: **₹{chosen_plan['price']}** for **{chosen_plan['days']} Days** validity.")
         
         # Display Creator's Payment Instructions / QR / UPI
-        st.markdown("#### 💳 Payment Instructions")
+        # Display Creator's Payment Instructions & Dynamic Amount-Embedded UPI QR Code
+        st.markdown("#### 💳 Payment Instructions (Scan & Pay)")
+        
+        import qrcode
+        from io import BytesIO
+        import time
+
+        master_upi = config_data.get('upi_id', '')
+        plan_amount = chosen_plan['price']
+        
         col_pay1, col_pay2 = st.columns(2)
         with col_pay1:
-            st.write(f"**UPI ID:** {config_data.get('upi_id', 'Not Set')}")
+            st.write(f"**UPI ID:** {master_upi if master_upi else 'Not Set'}")
+            st.write(f"**Amount to Pay:** ₹{plan_amount}")
             st.write(f"**Bank Name:** {config_data.get('bank_name', 'Not Set')}")
             st.write(f"**Account No:** {config_data.get('account_no', 'Not Set')}")
             st.write(f"**IFSC Code:** {config_data.get('ifsc', 'Not Set')}")
+            
         with col_pay2:
-            qr_link = config_data.get('qr_code_url', '')
-            if qr_link:
-                st.image(qr_link, width=160, caption="Scan & Pay via UPI")
+            if master_upi:
+                # Initialize session timer for 15-minute QR validity if not already set
+                if "qr_gen_time" not in st.session_state or st.session_state.get("last_plan") != plan_amount:
+                    st.session_state.qr_gen_time = time.time()
+                    st.session_state.last_plan = plan_amount
+                
+                elapsed_time = time.time() - st.session_state.qr_gen_time
+                remaining_time = max(0, int(900 - elapsed_time)) # 900 seconds = 15 minutes
+                
+                if remaining_time > 0:
+                    mins, secs = divmod(remaining_time, 60)
+                    st.info(f"⏳ QR Code valid for: **{mins:02d}:{secs:02d}**")
+                    
+                    # Construct UPI String with amount and payee address
+                    upi_string = f"upi://pay?pa={master_upi}&pn=JainVittasar&am={plan_amount}&cu=INR"
+                    
+                    # Generate QR Code image in memory
+                    qr = qrcode.QRCode(box_size=4, border=2)
+                    qr.add_data(upi_string)
+                    qr.make(fit=True)
+                    img = qr.make_image(fill_color="black", back_color="white")
+                    
+                    buf = BytesIO()
+                    img.save(buf, format="PNG")
+                    buf.seek(0)
+                    
+                    st.image(buf, width=180, caption=f"Scan to Pay ₹{plan_amount}")
+                    
+                    if st.button("🔄 Refresh QR Code Timer"):
+                        st.session_state.qr_gen_time = time.time()
+                        st.rerun()
+                else:
+                    st.error("⚠️ QR Code expired! Please refresh to generate a new one.")
+                    if st.button("Generate New QR Code"):
+                        st.session_state.qr_gen_time = time.time()
+                        st.rerun()
             else:
-                st.warning("QR Code not uploaded by Master yet.")
-
+                st.warning("Master UPI ID not configured yet.")
         txn_ref = st.text_input("Enter UPI Transaction ID / UTR Number after payment *", key="reg_txn_ref")
         
         reg_user = st.text_input("Create Username *", key="reg_user")
