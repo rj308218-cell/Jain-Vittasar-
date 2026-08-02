@@ -315,16 +315,7 @@ else:
             "All Bills Ledger"
         ])
         nav_choice = f"Report: {sub_choice}"
-    elif main_tab == "📊 Reports":
-        sub_choice = st.sidebar.selectbox("Report Options", ["View Party Ledger", "View Inventory Ledger", "View All Bills Ledger"])
-        nav_choice = f"Report: {sub_choice}"
-    elif main_tab == "💰 Cash & Accounts":
-        sub_choice = st.sidebar.selectbox("Accounts Options", ["Cash", "Bank Account", "Add New Bank Account"])
-        nav_choice = f"Account: {sub_choice}"
-    else:
-        sub_choice = st.sidebar.selectbox("Manage", ["Inventory Control", "Parties & Customers Ledger"])
-        nav_choice = f"Manage: {sub_choice}"
-
+    
 st.sidebar.markdown("---")
 if st.sidebar.button("🔒 Logout Session"):
     st.session_state.authenticated = False
