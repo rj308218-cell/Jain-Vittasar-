@@ -65,14 +65,12 @@ def auth_gateway():
                     if res.data:
                         account = res.data[0]
                         
-                        # Check payment verification status before allowing login
                         payment_status = account.get("payment_status", "Approved")
                         if payment_status == "Pending Verification":
                             st.warning("⏳ Your payment is currently under review by the Master Admin. Access will be granted once bank verification is complete.")
                         elif payment_status == "Rejected":
                             st.error("❌ Your payment was rejected by the administrator. Please contact support.")
                         else:
-                            # Check subscription expiry deadline
                             created_at = datetime.strptime(account["created_at"], "%Y-%m-%d %H:%M:%S")
                             plan_days = int(account.get("plan_days", 30))
                             expiry_date = created_at + pd.Timedelta(days=plan_days)
@@ -95,6 +93,7 @@ def auth_gateway():
                         st.error("Invalid Username or Password!")
                 except Exception as e:
                     st.error(f"Login failed: {e}")
+
     with tab2:
         st.subheader("Master / Creator Login")
         m_id = st.text_input("Master ID", value="Admin", key="m_id_box")
@@ -110,7 +109,7 @@ def auth_gateway():
             else:
                 st.error("Invalid Master Creator Credentials!")
 
-with tab3:
+    with tab3:
         st.subheader("New Business Registration & Subscription")
         reg_biz = st.text_input("Business Name *", key="reg_biz")
         reg_owner = st.text_input("Owner Full Name *", key="reg_owner")
@@ -195,7 +194,6 @@ with tab3:
                 st.error("All fields, payment UTR number, and the payment screenshot are mandatory!")
             else:
                 try:
-                    # Check if UTR number already exists to reject duplicate entries
                     check_utr = supabase.table("users").select("id").eq("txn_ref", txn_ref).execute()
                     check_user = supabase.table("users").select("id").eq("username", reg_user).execute()
                     
@@ -204,9 +202,6 @@ with tab3:
                     elif check_user.data:
                         st.error("Username already taken! Choose another.")
                     else:
-                        # Convert uploaded image screenshot to bytes string for database / state reference
-                        screenshot_bytes = screenshot_file.getvalue()
-                        
                         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         user_payload = {
                             "company_name": reg_biz,
@@ -218,7 +213,7 @@ with tab3:
                             "plan_days": chosen_plan["days"],
                             "amount_paid": chosen_plan["price"],
                             "txn_ref": txn_ref,
-                            "payment_status": "Pending Verification", # Locked until Master approves
+                            "payment_status": "Pending Verification",
                             "screenshot_name": screenshot_file.name,
                             "username": reg_user,
                             "password": reg_pwd,
@@ -238,7 +233,7 @@ with tab3:
                         st.success("Registration successful! Notification sent to Master Admin for payment verification. You can log in once approved.")
                 except Exception as e:
                     st.error(f"Registration failed: {e}")
-if not st.session_state.authenticated:
+    if not st.session_state.authenticated:
     auth_gateway()
     st.stop()
 # ==========================================
