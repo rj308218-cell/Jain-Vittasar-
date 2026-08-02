@@ -233,9 +233,9 @@ def auth_gateway():
                         st.success("Registration successful! Notification sent to Master Admin for payment verification. You can log in once approved.")
                 except Exception as e:
                     st.error(f"Registration failed: {e}")
-    if not st.session_state.authenticated:
-    auth_gateway()
-    st.stop()
+if not st.session_state.authenticated:
+auth_gateway()
+st.stop()
 # ==========================================
 # DASHBOARD NAVIGATION CONSOLE
 # ==========================================
