@@ -6,4 +6,4 @@ reportlab
 qrcode
 pillow
 num2words
-qrcode(pil)
+qrcode[pil]
