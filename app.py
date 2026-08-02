@@ -62,16 +62,17 @@ def auth_gateway():
             else:
                 try:
                     res = supabase.table("users").select("*").eq("username", u_name).eq("password", u_pwd).execute()
-                    if res.data:
-                        account = res.data[0]
-                        
-                        # Check subscription expiry deadline
-                        # Check subscription expiry deadline
-                        created_at = datetime.strptime(account["created_at"], "%Y-%m-%d %H:%M:%S")
-                        plan_days = int(account.get("plan_days", 30))
-                        expiry_date = created_at + pd.Timedelta(days=plan_days)
-                        
-                        st.session_state.authenticated = True
+if res.data:
+    account = res.data[0]
+    
+    # Check verification status
+    if account.get("payment_status") == "Pending Verification":
+        st.warning("⏳ Your payment is currently under review by the Master Admin. Access will be granted once bank verification is complete.")
+    elif account.get("payment_status") == "Rejected":
+        st.error("❌ Your payment was rejected by the administrator. Please contact support.")
+    else:
+        # Proceed with normal login and subscription expiry checks
+        ...
                         st.session_state.is_master = False
                         
                         # Set subscription status flag instead of completely blocking access[cite: 3]
@@ -612,7 +613,58 @@ elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All
                         st.rerun()
     except Exception as e:
         st.error(f"Failed to fetch users: {e}")
-
+elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All Users & Subscriptions":
+    st.subheader("👥 Payment Approvals & User Access Manager")
+    
+    try:
+        # Fetch users whose payments are pending verification
+        pending_users = supabase.table("users").select("*").eq("payment_status", "Pending Verification").execute()
+        
+        if pending_users.data:
+            st.warning(f"🔔 You have {len(pending_users.data)} pending payment(s) awaiting confirmation.")
+            
+            for u in pending_users.data:
+                with st.expander(f"Pending Approval: {u['company_name']} ({u['owner_name']})"):
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        st.write(f"**Mobile:** {u['mobile']}")
+                        st.write(f"**Plan:** {u['plan_name']} (₹{u.get('amount_paid', 0)})")
+                        st.write(f"**Customer Entered UTR:** `{u['txn_ref']}`")
+                        st.write(f"**Registered At:** {u['created_at']}")
+                        
+                    with col_m2:
+                        st.info("📷 **Customer Payment Screenshot:**")
+                        # Display screenshot if stored/retrieved from storage bucket
+                        st.write(f"File reference: {u.get('screenshot_url', 'Not available')}")
+                    
+                    st.markdown("---")
+                    st.write("### 🔐 Master Double-Confirmation Check")
+                    st.markdown("Verify the UTR number against your bank statement. Re-typing the exact UTR below confirms the transaction.")
+                    
+                    master_utr_input = st.text_input("Re-enter UTR to Confirm", key=f"master_utr_{u['id']}")
+                    
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button("✅ Confirm & Grant Access", key=f"approve_{u['id']}"):
+                            if master_utr_input.strip() == u['txn_ref'].strip():
+                                # Double check: Ensure master input matches customer input and isn't a blank repeat abuse
+                                supabase.table("users").update({
+                                    "payment_status": "Approved",
+                                    "master_confirmed_utr": master_utr_input
+                                }).eq("id", u["id"]).execute()
+                                st.success(f"Payment confirmed for {u['company_name']}! Full platform access granted.")
+                                st.rerun()
+                            else:
+                                st.error("❌ Mismatch! The UTR you entered does not match the customer's submitted UTR. Double-check your bank statement.")
+                    with col_btn2:
+                        if st.button("❌ Reject Payment", key=f"reject_{u['id']}"):
+                            supabase.table("users").update({"payment_status": "Rejected"}).eq("id", u["id"]).execute()
+                            st.warning("Payment rejected and registration flagged.")
+                            st.rerun()
+        else:
+            st.info("No pending payment approvals at the moment.")
+    except Exception as e:
+        st.error(f"Error loading pending approvals: {e}")
 # --- MASTER MODULE 3: PAYMENT GATEWAY SETUP ---
 elif st.session_state.get("is_master", False) and nav_choice == "💳 Payment Gateway Setup":
     st.subheader("💳 Configure Creator Payment Gateways")
