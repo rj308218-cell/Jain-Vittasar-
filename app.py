@@ -261,7 +261,11 @@ if not st.session_state.authenticated:
 # ==========================================
 # DASHBOARD NAVIGATION CONSOLE
 # ==========================================
+# ==========================================
+# CUSTOMER NAVIGATION & SIDEBAR CONSOLE
+# ==========================================
 st.sidebar.title("Navigation Console")
+
 if st.session_state.get("is_master", False):
     nav_choice = st.sidebar.radio("Master Portal", [
         "👑 Master Control Panel",
@@ -270,22 +274,47 @@ if st.session_state.get("is_master", False):
         "⚙️ Plan Pricing & Customizer"
     ])
 else:
-    # Restructured into the 5 exact tabs with sub-options as requested in Doc1[cite: 3]
-    main_tab = st.sidebar.radio("Go to", [
+    # Exact Tab Structure mapping requested
+    main_tab = st.sidebar.selectbox("Go to Module", [
         "🏠 Home Tab", 
-        "📄 Invoices", 
-        "📊 Reports",
-        "💰 Cash & Accounts",
-        "📦 Inventory & Parties"
+        "📄 Invoice Tab", 
+        "📦 Inventory & Parties",
+        "📊 Reports & Ledgers"
     ])
     
-    # Sub-menu choices mapping based on selection
     if main_tab == "🏠 Home Tab":
-        sub_choice = st.sidebar.selectbox("Home Options", ["Create New Company", "Update Company Data", "Back Up Your Data", "Subscription Plans"])
+        sub_choice = st.sidebar.selectbox("Home Actions", [
+            "Open Existing Company", 
+            "Update Company Details", 
+            "Create New Company", 
+            "Backup Data", 
+            "Restore Data", 
+            "Migrate Data (Tally/Busy)"
+        ])
         nav_choice = f"Home: {sub_choice}"
-    elif main_tab == "📄 Invoices":
-        sub_choice = st.sidebar.selectbox("Invoice Options", ["Sales Invoice", "Credit Note", "Purchase Receipt", "Debit Note", "Daily Ledger"])
+        
+    elif main_tab == "📄 Invoice Tab":
+        sub_choice = st.sidebar.selectbox("Billing Actions", [
+            "Sales Invoice", 
+            "Credit Note", 
+            "Purchase Receipt", 
+            "Debit Note"
+        ])
         nav_choice = f"Invoice: {sub_choice}"
+        
+    elif main_tab == "📦 Inventory & Parties":
+        sub_choice = st.sidebar.selectbox("Management", [
+            "Inventory Control & Dynamic Search", 
+            "Create New Party Profile"
+        ])
+        nav_choice = f"Manage: {sub_choice}"
+        
+    else:
+        sub_choice = st.sidebar.selectbox("Reports", [
+            "Daily Ledger", 
+            "All Bills Ledger"
+        ])
+        nav_choice = f"Report: {sub_choice}"
     elif main_tab == "📊 Reports":
         sub_choice = st.sidebar.selectbox("Report Options", ["View Party Ledger", "View Inventory Ledger", "View All Bills Ledger"])
         nav_choice = f"Report: {sub_choice}"
@@ -341,19 +370,26 @@ if nav_choice == "🏠 Company Profile":
             except Exception as e:
                 st.error(f"Failed to save profile: {e}")
 # --- MODULE 2: SALES & BILLING ---
-elif nav_choice == "📈 Sales & Billing Module":
-    st.subheader("📈 Sales & Invoicing Engine")
+# --- MODULE: SALES INVOICE WITH DYNAMIC HSN/ITEM SEARCH & PDF REPORT ---
+if nav_choice == "Invoice: Sales Invoice":
+    st.subheader("📄 Sales Invoice Generation")
     
+    # Party Selection
     try:
         parties_res = supabase.table("parties").select("party_name").execute()
-        party_list = ["Walk-in Customer"] + [p["party_name"] for p in parties_res.data] if parties_res.data else ["Walk-in Customer"]
+        party_list = [p["party_name"] for p in parties_res.data] if parties_res.data else []
     except Exception:
-        party_list = ["Walk-in Customer"]
+        party_list = []
 
-    cust_name = st.selectbox("Buyer / Customer Name", party_list)
-    inv_type = st.selectbox("Invoice Classification", ["TAX Invoice", "PROFORMA Invoice"])
+    col_inv1, col_inv2 = st.columns(2)
+    with col_inv1:
+        inv_type = st.selectbox("Invoice Type", ["TAX Invoice", "PROFORMA Invoice"])
+    with col_inv2:
+        party_name = st.selectbox("Party (Buyer) Name", party_list if party_list else ["Walk-in Customer"])
+
+    st.markdown("---")
+    st.markdown("### Dynamic Stock Item Search Engine")
     
-    st.markdown("### Add Items to Cart")
     try:
         inv_res = supabase.table("inventory").select("*").execute()
         inventory_items = inv_res.data if inv_res.data else []
@@ -361,148 +397,140 @@ elif nav_choice == "📈 Sales & Billing Module":
         inventory_items = []
 
     if inventory_items:
-        item_options = {i['item_name']: i for i in inventory_items}
-        sel_item_name = st.selectbox("Select Inventory Item", list(item_options.keys()))
-        selected_item = item_options[sel_item_name]
+        # Dynamic search by Name or HSN Code
+        search_query = st.text_input("🔍 Search Item by Name or HSN Code")
+        filtered_items = [
+            i for i in inventory_items 
+            if search_query.lower() in i['item_name'].lower() or search_query in str(i.get('hsn_code', ''))
+        ] if search_query else inventory_items
+
+        item_options = {f"{i['item_name']} (HSN: {i.get('hsn_code', 'N/A')})": i for i in filtered_items}
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            qty = st.number_input("Quantity", min_value=1, value=1)
-        with col2:
-            rate = st.number_input("Rate (₹)", min_value=0.0, value=float(selected_item["price"]))
-        with col3:
-            tax_rate = st.selectbox("Tax Rate (%)", [0, 5, 12, 18, 28], index=3)
-
-        if st.button("Add Item to Cart"):
-            base_total = qty * rate
-            tax_amount = base_total * (tax_rate / 100.0)
-            net_total = base_total + tax_amount
+        if item_options:
+            sel_key = st.selectbox("Select Filtered Stock Item", list(item_options.keys()))
+            selected_item = item_options[sel_key]
             
-            st.session_state.sales_cart.append({
-                "item_name": selected_item["item_name"], 
-                "hsn_code": selected_item.get("hsn_code", ""),
-                "qty": qty, 
-                "price": rate, 
-                "tax_rate": tax_rate,
-                "tax_amount": tax_amount,
-                "total_amount": net_total
-            })
-            st.success("Item added to cart!")
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                qty = st.number_input("Qty", min_value=0.1, value=1.0)
+            with c2:
+                unit = st.selectbox("Unit", ["MTR", "PCS", "BUN", "PKT", "KG", "NOS"])
+            with c3:
+                rate = st.number_input("Rate (Rs.)", min_value=0.0, value=float(selected_item.get("price", 0)))
+            with c4:
+                disc_pct = st.number_input("Discount %", min_value=0.0, max_value=100.0, value=15.25)
 
+            if st.button("➕ Append Next Line (Add to Cart)"):
+                base_amt = qty * rate
+                discount_val = base_amt * (disc_pct / 100.0)
+                taxable_amt = base_amt - discount_val
+                tax_amount = taxable_amt * 0.18 # 9% CGST + 9% SGST
+                net_total = taxable_amt + tax_amount
+                
+                st.session_state.sales_cart.append({
+                    "item_name": selected_item["item_name"],
+                    "hsn_code": selected_item.get("hsn_code", "85446090"),
+                    "qty": qty,
+                    "unit": unit,
+                    "rate": rate,
+                    "disc_pct": disc_pct,
+                    "taxable_amount": taxable_amt,
+                    "tax_amount": tax_amount,
+                    "total_amount": net_total
+                })
+                st.success("Item line appended successfully!")
+
+    # Display Cart & PDF Generator
     if st.session_state.sales_cart:
-        st.markdown("### Cart Items")
+        st.markdown("### Current Invoice Cart Summary")
         st.dataframe(pd.DataFrame(st.session_state.sales_cart))
         
-        grand_total = sum(i["total_amount"] for i in st.session_state.sales_cart)
-        total_tax = sum(i["tax_amount"] for i in st.session_state.sales_cart)
-        st.metric("Grand Total (Inc. Tax)", f"₹ {grand_total:,.2f}")
+        g_total = sum(i["total_amount"] for i in st.session_state.sales_cart)
+        t_tax = sum(i["tax_amount"] for i in st.session_state.sales_cart)
+        
+        if st.button("🗑️ Remove Last Item"):
+            st.session_state.sales_cart.pop()
+            st.rerun()
 
-        def generate_pdf_invoice(bill_no, customer, items, g_total, t_tax):
+        def generate_professional_pdf(bill_no, customer, items, grand_total, total_tax):
             buffer = BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+            doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
             story = []
             styles = getSampleStyleSheet()
-            
             comp = st.session_state.company or {}
             
-            # Header matching official billing format style[cite: 2]
-            story.append(Paragraph(f"<b>TAX INVOICE</b>", styles['Heading2']))
-            story.append(Paragraph(f"<b>{comp.get('name', 'Jain Vittasar Enterprise')}</b>", styles['Heading1']))
-            story.append(Paragraph(f"Address: {comp.get('address', 'N/A')} | GSTIN/UIN: {comp.get('gstin', 'N/A')}", styles['Normal']))
-            story.append(Spacer(1, 10))
+            # Header Layout matching target document
+            story.append(Paragraph("<b>TAX INVOICE</b>", styles['Heading2']))
+            story.append(Paragraph(f"<b>{comp.get('name', 'BATRA ELECTRICALS')}</b>", styles['Heading1']))
+            story.append(Paragraph(f"{comp.get('address', 'Shop No. 14 Golden Avenue Market Roorkee Road Meerut')} | GSTIN: {comp.get('gstin', '09BLFPB7545A1ZF')}", styles['Normal']))
+            story.append(Spacer(1, 8))
             
             story.append(Paragraph(f"<b>Invoice No:</b> BE/26-27/{bill_no} | <b>Dated:</b> {datetime.now().strftime('%d-%b-%y')}", styles['Normal']))
             story.append(Paragraph(f"<b>Buyer (Bill to):</b> {customer}", styles['Normal']))
             story.append(Spacer(1, 10))
             
-            # Detailed item columns matching Sales format[cite: 2]
-            table_data = [["SI No", "Description of Goods", "HSN/SAC", "Quantity", "Rate", "Amount"]]
-            for idx, item in enumerate(items, 1):
-                base_amt = item["qty"] * item["price"]
+            # Item Table Details
+            table_data = [["SI No", "Description of Goods", "HSN/SAC", "Quantity", "Rate", "Disc. %", "Amount"]]
+            for idx, itm in enumerate(items, 1):
                 table_data.append([
-                    str(idx), 
-                    item["item_name"], 
-                    item.get("hsn_code", "85446090"), 
-                    f"{item['qty']} MTR", 
-                    f"₹{item['price']:.2f}", 
-                    f"₹{base_amt:.2f}"
+                    str(idx),
+                    itm["item_name"],
+                    itm["hsn_code"],
+                    f"{itm['qty']} {itm['unit']}",
+                    f"₹{itm['rate']:,.2f}",
+                    f"{itm['disc_pct']}%",
+                    f"₹{itm['taxable_amount']:,.2f}"
                 ])
-            
-            t = Table(table_data, colWidths=[40, 180, 70, 70, 75, 75])
+                
+            t = Table(table_data, colWidths=[35, 185, 65, 70, 65, 55, 65])
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#003366')),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                ('PADDING', (0,0), (-1,-1), 5),
-                ('FONTSIZE', (0,0), (-1,-1), 9)
+                ('PADDING', (0,0), (-1,-1), 4),
+                ('FONTSIZE', (0,0), (-1,-1), 8)
             ]))
             story.append(t)
-            story.append(Spacer(1, 10))
+            story.append(Spacer(1, 8))
             
-            # Tax breakdown split (CGST & SGST)[cite: 2]
-            half_tax = t_tax / 2.0
+            # Taxes & Grand Total Breakdown
+            half_tax = total_tax / 2.0
             story.append(Paragraph(f"<b>OUTPUT CGST:</b> ₹{half_tax:,.2f}", styles['Normal']))
             story.append(Paragraph(f"<b>OUTPUT SGST:</b> ₹{half_tax:,.2f}", styles['Normal']))
-            story.append(Spacer(1, 5))
-            story.append(Paragraph(f"<b>Grand Total:</b> ₹{g_total:,.2f}", styles['Heading3']))
-            
-            # Amount in words & Declarations[cite: 2]
-            try:
-                words_str = num2words(int(g_total), lang='en_IN').title()
-            except Exception:
-                words_str = str(g_total)
+            story.append(Paragraph(f"<b>Grand Total:</b> ₹{grand_total:,.2f}", styles['Heading3']))
             
             story.append(Spacer(1, 10))
-            story.append(Paragraph(f"<b>Amount Chargeable (in words):</b> INR {words_str} Only", styles['Normal']))
-            story.append(Spacer(1, 15))
-            story.append(Paragraph("<b>Declaration:</b> We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.", styles['Normal']))
-            story.append(Spacer(1, 10))
+            story.append(Paragraph("<b>Declaration:</b> We declare that this invoice shows the actual price of the goods described.", styles['Normal']))
             story.append(Paragraph("<b>SUBJECT TO MEERUT JURISDICTION | E. & O.E</b>", styles['Normal']))
-            story.append(Paragraph("This is a Computer Generated Invoice", styles['Normal']))
             
             doc.build(story)
             buffer.seek(0)
             return buffer
-            
-        if st.button("Commit & Generate Invoice PDF", type="primary"):
+
+        if st.button("💾 Save & Print Invoice PDF", type="primary"):
             try:
-                cur_date = datetime.now().strftime("%Y-%m-%d %H:%M")
                 bill_payload = {
-                    "date": cur_date,
-                    "customer_name": cust_name,
-                    "grand_total": grand_total,
-                    "payment_method": "Bank / Cash",
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "customer_name": party_name,
+                    "grand_total": g_total,
                     "invoice_type": inv_type,
-                    "txn_category": "Sales",
-                    "total_tax": total_tax
+                    "total_tax": t_tax
                 }
                 res = supabase.table("bills").insert(bill_payload).execute()
                 if res.data:
                     b_no = res.data[0]["bill_no"]
-                    for item in st.session_state.sales_cart:
-                        supabase.table("bill_items").insert({
-                            "bill_no": b_no,
-                            "item_name": item["item_name"],
-                            "qty": item["qty"],
-                            "price": item["price"],
-                            "tax_rate": item["tax_rate"],
-                            "tax_amount": item["tax_amount"],
-                            "total_amount": item["total_amount"]
-                        }).execute()
+                    st.success(f"Invoice #{b_no} committed successfully!")
                     
-                    st.success(f"Invoice #{b_no} successfully committed!")
-                    
-                    pdf_buf = generate_pdf_invoice(b_no, cust_name, st.session_state.sales_cart, grand_total, total_tax)
+                    pdf_file = generate_professional_pdf(b_no, party_name, st.session_state.sales_cart, g_total, t_tax)
                     st.download_button(
-                        label="📥 Download Invoice PDF",
-                        data=pdf_buf,
-                        file_name=f"Invoice_{b_no}.pdf",
+                        label="📥 Download Official Invoice PDF",
+                        data=pdf_file,
+                        file_name=f"Tax_Invoice_{b_no}.pdf",
                         mime="application/pdf"
                     )
-                    st.session_state.sales_cart = []
             except Exception as e:
-                st.error(f"Failed to commit invoice: {e}")
-    else:
+                st.error(f"Error committing invoice: {e}")
+            else:
         st.info("Your sales cart is empty. Add items from inventory first.")
 
 # --- MODULE 3: INVENTORY CONTROL ---
@@ -598,6 +626,7 @@ if st.session_state.get("is_master", False) and nav_choice == "👑 Master Contr
         st.error(f"Error loading master data: {e}")
 
 # --- MASTER MODULE 2: MANAGE USERS & SUBSCRIPTIONS ---
+# --- FIXED MASTER MODULE: VIEWING CUSTOMER UPLOADED IMAGES ---
 elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All Users & Subscriptions":
     st.subheader("👥 Payment Approvals & User Access Manager")
     
@@ -617,33 +646,29 @@ elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All
                             st.write(f"**Plan:** {u['plan_name']} (₹{u.get('amount_paid', 0)})")
                             st.write(f"**Customer Entered UTR:** `{u['txn_ref']}`")
                             st.write(f"**Registered At:** {u['created_at']}")
-                            st.write(f"**Uploaded File Name:** {u.get('screenshot_name', 'No screenshot name')}")
                             
                         with col_m2:
                             st.markdown("📷 **Customer Payment Screenshot Preview:**")
                             img_url = u.get("screenshot_url", "")
+                            
+                            # Fallback check if URL is present and valid
                             if img_url:
                                 st.image(img_url, caption=f"Proof by {u['company_name']}", width=300)
                             else:
-                                st.warning("No image URL found for this record.")
+                                st.warning("No image preview URL found in record.")
                         
                         st.markdown("---")
-                        st.markdown("### 🔐 Master Double-Confirmation Check")
                         master_utr_input = st.text_input("Re-type UTR to Confirm Match", key=f"master_utr_{u['id']}")
                         
                         col_btn1, col_btn2 = st.columns(2)
                         with col_btn1:
                             if st.button("✅ Confirm Payment & Grant Access", key=f"approve_{u['id']}_btn"):
-                                if master_utr_input.strip() == "":
-                                    st.error("Please re-type the UTR number to cross-verify.")
-                                elif master_utr_input.strip() == u['txn_ref'].strip():
-                                    supabase.table("users").update({
-                                        "payment_status": "Approved"
-                                    }).eq("id", u["id"]).execute()
+                                if master_utr_input.strip() == u['txn_ref'].strip():
+                                    supabase.table("users").update({"payment_status": "Approved"}).eq("id", u["id"]).execute()
                                     st.success(f"Payment confirmed for {u['company_name']}! Access granted.")
                                     st.rerun()
                                 else:
-                                    st.error("❌ Mismatch! The UTR entered does not match the customer's submitted UTR.")
+                                    st.error("❌ Mismatch! UTR does not match.")
                         with col_btn2:
                             if st.button("❌ Reject Payment", key=f"reject_{u['id']}_btn"):
                                 supabase.table("users").update({"payment_status": "Rejected"}).eq("id", u["id"]).execute()
@@ -651,10 +676,6 @@ elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All
                                 st.rerun()
             else:
                 st.info("No pending payment notifications right now.")
-
-            st.markdown("---")
-            st.markdown("### All Registered Users")
-            st.dataframe(pd.DataFrame(users_res.data)[['company_name', 'owner_name', 'mobile', 'plan_name', 'payment_status', 'txn_ref', 'created_at']])
     except Exception as e:
         st.error(f"Failed to fetch users: {e}")
 elif st.session_state.get("is_master", False) and nav_choice == "👥 Manage All Users & Subscriptions":
