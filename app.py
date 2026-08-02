@@ -207,7 +207,6 @@ def auth_gateway():
                     elif check_user.data:
                         st.error("Username already taken! Choose another.")
                     else:
-                        # Upload image bytes to Supabase Storage Bucket named 'payment-proofs'
                         file_ext = screenshot_file.name.split(".")[-1]
                         file_path = f"{reg_user}_{int(time.time())}.{file_ext}"
                         file_bytes = screenshot_file.getvalue()
@@ -218,7 +217,6 @@ def auth_gateway():
                             file_options={"content-type": f"image/{file_ext}"}
                         )
                         
-                        # Get public URL of the uploaded image
                         public_url_res = supabase.storage.from_("payment-proofs").get_public_url(file_path)
                         screenshot_url = public_url_res if isinstance(public_url_res, str) else public_url_res.get("publicUrl", "")
 
@@ -235,37 +233,7 @@ def auth_gateway():
                             "txn_ref": txn_ref,
                             "payment_status": "Pending Verification",
                             "screenshot_name": screenshot_file.name,
-                            "screenshot_url": screenshot_url,  # Save the viewable URL
-                            "username": reg_user,
-                            "password": reg_pwd,
-                            "created_at": now_str
-                        }
-                        supabase.table("users").insert(user_payload).execute()
-            if not reg_biz or not reg_owner or not reg_email or not reg_mobile or not reg_addr or not reg_user or not reg_pwd or not txn_ref or not screenshot_file:
-                st.error("All fields, payment UTR number, and the payment screenshot are mandatory!")
-            else:
-                try:
-                    check_utr = supabase.table("users").select("id").eq("txn_ref", txn_ref).execute()
-                    check_user = supabase.table("users").select("id").eq("username", reg_user).execute()
-                    
-                    if check_utr.data:
-                        st.error("⚠️ This UTR number has already been used or entered previously. Duplicate UTR submissions are rejected.")
-                    elif check_user.data:
-                        st.error("Username already taken! Choose another.")
-                    else:
-                        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        user_payload = {
-                            "company_name": reg_biz,
-                            "owner_name": reg_owner,
-                            "mobile": reg_mobile,
-                            "address": reg_addr,
-                            "gstin": reg_gstin,
-                            "plan_name": chosen_plan["name"],
-                            "plan_days": chosen_plan["days"],
-                            "amount_paid": chosen_plan["price"],
-                            "txn_ref": txn_ref,
-                            "payment_status": "Pending Verification",
-                            "screenshot_name": screenshot_file.name,
+                            "screenshot_url": screenshot_url,
                             "username": reg_user,
                             "password": reg_pwd,
                             "created_at": now_str
